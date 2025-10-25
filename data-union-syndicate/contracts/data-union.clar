@@ -338,3 +338,191 @@
     (ok true)
   )
 )
+
+;; #[allow(unchecked_data)]
+(define-public (create-proposal 
+  (title (string-ascii 100))
+  (description (string-ascii 500))
+  (proposal-type uint)
+  (voting-period uint))
+  (let
+    (
+      (caller tx-sender)
+      (member-data (unwrap! (map-get? members caller) err-not-member))
+      (proposal-id (var-get proposal-nonce))
+    )
+    (asserts! (>= (get reputation-score member-data) u10) err-unauthorized)
+    (map-set proposals proposal-id
+      {
+        proposer: caller,
+        title: title,
+        description: description,
+        votes-for: u0,
+        votes-against: u0,
+        end-block: (+ stacks-block-height voting-period),
+        executed: false,
+        proposal-type: proposal-type
+      }
+    )
+    (var-set proposal-nonce (+ proposal-id u1))
+    (ok proposal-id)
+  )
+)
+
+(define-public (vote-on-proposal (proposal-id uint) (vote-for bool))
+  (let
+    (
+      (caller tx-sender)
+      (member-data (unwrap! (map-get? members caller) err-not-member))
+      (proposal-data (unwrap! (map-get? proposals proposal-id) err-not-found))
+      (voting-power (unwrap-panic (calculate-voting-power caller)))
+    )
+    (asserts! (< stacks-block-height (get end-block proposal-data)) err-proposal-expired)
+    (asserts! (is-none (map-get? votes {proposal-id: proposal-id, voter: caller})) err-already-voted)
+    (map-set votes {proposal-id: proposal-id, voter: caller}
+      {
+        vote: vote-for,
+        voting-power: voting-power
+      }
+    )
+    (if vote-for
+      (map-set proposals proposal-id
+        (merge proposal-data { votes-for: (+ (get votes-for proposal-data) voting-power) })
+      )
+      (map-set proposals proposal-id
+        (merge proposal-data { votes-against: (+ (get votes-against proposal-data) voting-power) })
+      )
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (purchase-data-license (duration-blocks uint))
+  (let
+    (
+      (caller tx-sender)
+      (license-fee (* duration-blocks u1000))
+    )
+    (try! (stx-transfer? license-fee caller (as-contract tx-sender)))
+    (var-set revenue-pool (+ (var-get revenue-pool) license-fee))
+    (map-set buyer-licenses caller
+      {
+        active: true,
+        data-access-count: u0,
+        total-paid: license-fee,
+        license-expires: (+ stacks-block-height duration-blocks)
+      }
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (rate-contribution (contribution-id uint) (rating uint) (comment (string-ascii 200)))
+  (let
+    (
+      (caller tx-sender)
+      (contribution-data (unwrap! (map-get? contributions contribution-id) err-not-found))
+      (member-data (unwrap! (map-get? members caller) err-not-member))
+    )
+    (asserts! (<= rating u5) err-invalid-amount)
+    (asserts! (get verified contribution-data) err-unauthorized)
+    (map-set contribution-ratings {contribution-id: contribution-id, rater: caller}
+      {
+        rating: rating,
+        comment: comment
+      }
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (delegate-voting-power (delegate principal))
+  (let
+    (
+      (caller tx-sender)
+      (delegate-data (unwrap! (map-get? members delegate) err-not-member))
+    )
+    (map-set member-delegations {delegator: caller}
+      {
+        delegate: delegate,
+        active: true
+      }
+    )
+    (ok true)
+  )
+)
+
+(define-public (revoke-delegation)
+  (let
+    (
+      (caller tx-sender)
+      (delegation (unwrap! (map-get? member-delegations {delegator: caller}) err-not-found))
+    )
+    (map-set member-delegations {delegator: caller}
+      (merge delegation { active: false })
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (suspend-member (member principal))
+  (let
+    (
+      (member-data (unwrap! (map-get? members member) err-not-member))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (map-set members member
+      (merge member-data { suspended: true })
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (reinstate-member (member principal))
+  (let
+    (
+      (member-data (unwrap! (map-get? members member) err-not-member))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (map-set members member
+      (merge member-data { suspended: false })
+    )
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (update-minimum-stake (new-stake uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (var-set minimum-stake new-stake)
+    (ok true)
+  )
+)
+
+(define-public (update-distribution-percentage (new-percentage uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (<= new-percentage u100) err-invalid-amount)
+    (var-set distribution-percentage new-percentage)
+    (ok true)
+  )
+)
+
+(define-public (distribute-rewards)
+  (let
+    (
+      (pool-balance (var-get revenue-pool))
+      (distribution-amount (/ (* pool-balance (var-get distribution-percentage)) u100))
+    )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (> pool-balance u0) err-insufficient-balance)
+    ;; Distribute rewards logic would go here
+    (ok distribution-amount)
+  )
+)
