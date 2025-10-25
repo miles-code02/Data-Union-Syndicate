@@ -109,3 +109,67 @@
     active: bool
   }
 )
+
+;; Read-only functions
+(define-read-only (get-member-info (member principal))
+  (map-get? members member)
+)
+
+(define-read-only (get-contribution (contribution-id uint))
+  (map-get? contributions contribution-id)
+)
+
+(define-read-only (get-total-members)
+  (ok (var-get total-members))
+)
+
+(define-read-only (get-revenue-pool)
+  (ok (var-get revenue-pool))
+)
+
+(define-read-only (get-proposal (proposal-id uint))
+  (map-get? proposals proposal-id)
+)
+
+(define-read-only (get-vote (proposal-id uint) (voter principal))
+  (map-get? votes {proposal-id: proposal-id, voter: voter})
+)
+
+(define-read-only (get-buyer-license (buyer principal))
+  (map-get? buyer-licenses buyer)
+)
+
+(define-read-only (get-contribution-rating (contribution-id uint) (rater principal))
+  (map-get? contribution-ratings {contribution-id: contribution-id, rater: rater})
+)
+
+(define-read-only (get-member-tier (member principal))
+  (match (map-get? members member)
+    member-data (ok (get tier member-data))
+    (ok u0)
+  )
+)
+
+(define-read-only (get-delegation (delegator principal))
+  (map-get? member-delegations {delegator: delegator})
+)
+
+(define-read-only (is-member (user principal))
+  (is-some (map-get? members user))
+)
+
+(define-read-only (get-member-reputation (member principal))
+  (match (map-get? members member)
+    member-data (ok (get reputation-score member-data))
+    (ok u0)
+  )
+)
+
+(define-read-only (calculate-voting-power (member principal))
+  (match (map-get? members member)
+    member-data (ok (+ (get contribution-count member-data) 
+                       (* (get tier member-data) u10)
+                       (/ (get reputation-score member-data) u10)))
+    (ok u0)
+  )
+)
